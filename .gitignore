@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+
+# Generated benchmark output (task matrix, cost estimate, live-run samples, replay summary).
+benchmark_output/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

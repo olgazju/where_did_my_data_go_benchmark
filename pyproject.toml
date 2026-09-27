@@ -1,0 +1,30 @@
+[project]
+name = "where-did-my-data-go"
+version = "0.1.0"
+description = "A benchmark: can an LLM distinguish evidence-supported conclusions from plausible guesses when investigating missing entities in a multi-stage data pipeline under varying observability?"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "anthropic>=0.40",
+]
+
+[project.scripts]
+poc = "poc.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/poc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,184 @@
+You are auditing a multi-stage data pipeline to determine what happened to one source record.
+
+# Pipeline
+A multi-source pipeline ingests business records from three heterogeneous source types (business registry records, business directory records, and news articles) and processes them through six stages: (1) source ingestion, (2) structured entity extraction, (3) normalization, (4) entity resolution / deduplication, (5) business filtering, and (6) emission of a final canonical entity dataset. Records may be lost at any stage, deduplicated into a shared canonical id, incorrectly merged with a distinct entity, or excluded by a business rule.
+
+# Observability level
+PARTIAL. You may reason ONLY from the artifacts provided below.
+Each intermediate artifact declares a `state` and, when COMPLETE, the scopes for which
+it is guaranteed complete. Absence of a row is evidence ONLY within a
+`guaranteed_complete_for` scope. If more than one outcome remains consistent with the
+available evidence, the answer is UNDETERMINABLE.
+
+# Identifier rules
+Strong identifiers are namespaced (e.g. "registry:US-DE/4830012", "duns/11-2200-345").
+Within one namespace a value denotes at most one real entity, so two records with
+different values in the SAME namespace cannot be the same entity. Name similarity is
+NOT a strong identifier.
+
+# Classification labels
+- INGESTION_LOSS: The source record was not successfully ingested into the pipeline.
+- EXTRACTION_LOSS: Ingestion succeeded, but structured entity extraction failed for the record.
+- WRONG_MERGE: The record was incorrectly merged with a distinct entity (identity contradiction).
+- FILTERED_OUT: The entity was excluded from the final dataset by a business rule.
+- PRESENT_UNDER_OTHER_ID: The entity exists in the final dataset under a different identifier.
+- UNDETERMINABLE: The available evidence is insufficient to establish a unique outcome.
+
+# Evidence
+{
+  "source_records": [
+    {
+      "source_id": "S07-SURV",
+      "source_type": "registry",
+      "batch": "B1",
+      "legal_name": "Blue Harbor Capital",
+      "registration_number": "5521001",
+      "jurisdiction": "US-NY"
+    },
+    {
+      "source_id": "S07-P",
+      "source_type": "registry",
+      "batch": "B1",
+      "legal_name": "Blue Harbour Capital Partners",
+      "registration_number": "5589774",
+      "jurisdiction": "US-NY"
+    }
+  ],
+  "final_dataset": [
+    {
+      "final_id": "ENT-07",
+      "canonical_id": "C7",
+      "canonical_name": "Blue Harbor Capital",
+      "strong_ids": [
+        {
+          "namespace": "registry:US-NY",
+          "value": "5521001"
+        }
+      ]
+    }
+  ],
+  "intermediate_artifacts": {
+    "ingestion_manifest": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "rows": [
+        {
+          "source_id": "S07-SURV",
+          "batch": "B1",
+          "status": "ingested"
+        },
+        {
+          "source_id": "S07-P",
+          "batch": "B1",
+          "status": "ingested"
+        }
+      ]
+    },
+    "extraction_log": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "extraction"
+      ],
+      "rows": [
+        {
+          "source_id": "S07-SURV",
+          "status": "ok"
+        },
+        {
+          "source_id": "S07-P",
+          "status": "ok"
+        }
+      ]
+    },
+    "normalized_records": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "normalization"
+      ],
+      "rows": [
+        {
+          "source_id": "S07-SURV",
+          "normalized_name": "blue harbor capital",
+          "strong_ids": [
+            "registry:US-NY/5521001"
+          ]
+        },
+        {
+          "source_id": "S07-P",
+          "normalized_name": "blue harbour capital",
+          "strong_ids": [
+            "registry:US-NY/5589774"
+          ]
+        }
+      ]
+    },
+    "resolution_map": {
+      "state": "PARTIAL",
+      "guaranteed_complete_for": [],
+      "rows": [
+        {
+          "source_id": "S07-SURV",
+          "canonical_id": "C7"
+        }
+      ]
+    },
+    "filter_log": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "filter"
+      ],
+      "rows": [
+        {
+          "canonical_id": "C7",
+          "kept": true,
+          "rule": null
+        }
+      ]
+    }
+  }
+}
+
+# Identifier reporting
+The pipeline uses two id spaces. `canonical_id` (e.g. "C10") is an INTERNAL id assigned at
+resolution and appears in the intermediate artifacts. `final_id` (e.g. "ENT-501") is the PUBLIC
+id in `final_dataset`. Whenever you report `final_id` or `merge_target_id`, report the PUBLIC
+`final_id` from `final_dataset`, never the internal `canonical_id`. To convert, match an
+artifact's `canonical_id` to `final_dataset.canonical_id` and read its `final_id`.
+
+# Evidence-grounding rules
+- Base your status ONLY on what the available artifacts POSITIVELY ESTABLISH. Do not guess.
+- Name similarity ALONE never establishes identity. To answer PRESENT_UNDER_OTHER_ID you need
+  either (a) a strong identifier shared between the source record and a final record, or (b) an
+  explicit lineage link (resolution map and/or merge-decision log) tying the record to a final entity.
+- If the available evidence is consistent with more than one outcome — e.g. the record could match
+  two different final entities, or could equally have been lost, filtered, or merged — you MUST
+  answer UNDETERMINABLE.
+- Absence of a record is evidence ONLY inside an artifact that is COMPLETE for the relevant scope;
+  in a PARTIAL or MISSING artifact, absence proves nothing.
+- Prefer UNDETERMINABLE over an unsupported positive claim.
+
+# Evidence citations (required, structured)
+For any status other than UNDETERMINABLE you MUST populate "evidence_refs" with a JSON array of
+citation objects, each of the form {"artifact": "<artifact name>", "match": {"<field>": "<value>"}},
+drawn ONLY from the artifacts shown above. Cite the specific rows that establish your conclusion,
+e.g. {"artifact": "resolution_map", "match": {"source_id": "SRC-1", "canonical_id": "C10"}} or
+{"artifact": "final_dataset", "match": {"final_id": "ENT-501", "strong_id": "duns/11-2200-345"}}.
+Do NOT cite name similarity. If you cannot cite establishing artifacts, answer UNDETERMINABLE with
+"evidence_refs": [].
+
+# Task
+Investigate source record: S07-P
+
+Return ONLY a JSON object with exactly these keys:
+{
+  "source_id": "S07-P",
+  "status": "<one of the labels above>",
+  "final_id": "<final entity id if status is PRESENT_UNDER_OTHER_ID, else null>",
+  "merge_target_id": "<the id it was wrongly merged into if status is WRONG_MERGE and that id is observable, else null>",
+  "evidence_refs": [{"artifact": "<artifact name>", "match": {"<field>": "<value>"}}]  // use [] for UNDETERMINABLE
+}
+Use null for non-applicable ids. Do not include any text outside the JSON object.
