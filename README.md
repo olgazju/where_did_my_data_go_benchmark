@@ -4,11 +4,11 @@
 
 Every data engineer has had this ticket:
 
-> *"Acme Corp is in the CRM export but missing from the dashboard. Where did it go?"*
+> *"Umbrella Corp is in the CRM export but missing from the dashboard. Where did it go?"*
 
 You open the pipeline. Ingestion manifest, extraction log, entity-resolution map, merge log,
 filter log. Half of them were rotated out last week. And in the final table there's an entity
-called **"Acme Corporation Inc"**, which is *very* tempting.
+called **"Umbrella Corporation Inc"**, which is *very* tempting.
 
 A good investigator says *"it was filtered out by rule R3, here's the log row"* when the log row
 exists. When the trail has gone cold, they say *"I can't tell"*, even with a name-alike staring
@@ -17,7 +17,7 @@ at them. A bad investigator picks the name-alike and moves on.
 This benchmark measures which kind of investigator a model is. Every answer is scored by a
 **deterministic reference solver and evidence validator. There is no LLM judge.**
 
-> 📊 **Kaggle benchmark:** `<add link after publishing>` · **Tasks:** `where-did-my-data-go` (with rules) and `where-did-my-data-go-unguided` (on instinct)
+> 📊 **Kaggle benchmark:** [www.kaggle.com/benchmarks/olgazju/where-did-my-data-go](https://www.kaggle.com/benchmarks/olgazju/where-did-my-data-go) · **Tasks:** `where-did-my-data-go` (with rules) and `where-did-my-data-go-unguided` (on instinct)
 
 ---
 
@@ -155,7 +155,26 @@ The name-matching heuristic is exactly the behavior the calibration traps are bu
 
 ---
 
-## Results so far
+## Results
+
+Kaggle Model Proxy, 107 calls per track per model, no failed calls. Sorted by price. Cost and
+latency are for the official track. Live leaderboard: [www.kaggle.com/benchmarks/olgazju/where-did-my-data-go](https://www.kaggle.com/benchmarks/olgazju/where-did-my-data-go)
+
+| Model | $ per 1k investigations | Median s / investigation | Guess rate on undeterminable, unguided | Full acc., unguided | Full acc., official | **Primary, official** (±95% CI) |
+|---|---|---|---|---|---|---|
+| GPT-6 Luna | $0.18 | 2.4 | 0.000 | 1.000 | 1.000 | 0.948 ± 0.051 |
+| Claude Haiku 5.5 | $0.43 | 3.0 | 0.068 | 0.966 | 1.000 | 0.993 ± 0.015 |
+| Qwen 3 Next 80B Instruct | $0.46 | 10.0 | **0.591** | 0.502 | 0.756 | 0.652 ± 0.223 |
+| Gemini 3.5 Flash-Lite | $0.88 | 0.9 | **0.455** | 0.701 | 0.852 | 0.770 ± 0.178 |
+| Gemma 4 31B | $1.18 | 37.7 | 0.000 | 0.993 | 0.933 | 0.815 ± 0.140 |
+| GPT-6 Sol | $2.80 | 1.8 | 0.000 | 0.956 | 0.978 | 0.978 ± 0.044 |
+| Claude Sonnet 5 | $6.07 | 2.6 | **0.295** | 0.874 | 1.000 | 0.993 ± 0.015 |
+| Gemini 3.7 Flash | $7.10 | 6.9 | 0.091 | 0.898 | 0.933 | 0.830 ± 0.149 |
+
+With the official prompt every model except Qwen (0.068) has a guess rate of 0.000. Tables per
+scenario and the list of traps each model fell for come from `kaggle/summarize_results.py`.
+
+### Development run
 
 Development run before the Kaggle port: `claude-sonnet-5` via the Anthropic API, 107 calls per
 track, re-scored with the current scorer. Both prompts are byte-identical to the ones the Kaggle
@@ -175,8 +194,6 @@ ambiguous multi-match (S12), in 3 of 3 on the "lineage just disappeared" case (S
 in 3 of 3 on the "filter log is partial" case (S15 partial). Adding explicit grounding rules and
 mandatory structured citations removed every unsupported guess without causing any
 over-abstention. Citation integrity was 100%: no hallucinated rows.
-
-**Kaggle leaderboard (multi-model):** `<add link and table after runs>`
 
 The full research trail is archived in `archive/history.tgz`: four experiments, pre-registered
 verdict rules, raw API responses, and a validator audit.
