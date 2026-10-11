@@ -1,13 +1,11 @@
-"""The single official benchmark prompt (P2).
+"""The official Evidence-Grounded Investigation Prompt and its unguided control.
 
-Self-contained: the base task render plus the three fixed additions —
-  * evidence-grounding rules,
-  * canonical-vs-final id clarification, and
-  * mandatory structured `evidence_refs`.
+The official prompt is the base task render plus evidence-grounding rules, the
+canonical-vs-final id clause and mandatory structured `evidence_refs`. The unguided control
+adds only the id clause, measuring whether a model applies evidence discipline unprompted.
 
-Wording is frozen; the byte-for-byte content is regression-checked against the golden prompts
-in `tests/fixtures/official_p2/`. There is no prompt-condition selection: the historical P0/P1
-variants have been retired.
+Wording is byte-frozen and regression-checked against the golden prompts in
+`tests/fixtures/official_prompt/` and `tests/fixtures/unguided_prompt/`.
 """
 from __future__ import annotations
 
@@ -16,12 +14,16 @@ import json
 from .labels import LABEL_DEFINITIONS
 from .models import ArtifactState, ObservableBundle
 
+OFFICIAL_PROMPT_NAME = "Evidence-Grounded Investigation Prompt"
+UNGUIDED_PROMPT_NAME = "Unguided Investigation Prompt"
+
 
 # --------------------------------------------------------------------------------------
 # Base task render (evidence + labels + response schema)
 # --------------------------------------------------------------------------------------
-def _artifact_payload(bundle: ObservableBundle) -> dict:
-    out: dict = {}
+def _artifact_payload(bundle: ObservableBundle) -> dict[str, dict]:
+    """Return each non-MISSING intermediate artifact's state, completeness scopes and rows, by name."""
+    out: dict[str, dict] = {}
     for name, art in bundle.artifacts.items():
         if art.state is ArtifactState.MISSING:
             continue
@@ -34,6 +36,15 @@ def _artifact_payload(bundle: ObservableBundle) -> dict:
 
 
 def _render_base(bundle: ObservableBundle, source_id: str) -> str:
+    """Render the shared task prompt: pipeline, observability, id rules, labels, evidence, schema.
+
+    Args:
+        bundle — the observable evidence for one observability level.
+        source_id — the probe source record to investigate.
+
+    Returns:
+        The base prompt text, before any prompt-specific additions.
+    """
     labels_block = "\n".join(f"- {lbl.value}: {desc}" for lbl, desc in LABEL_DEFINITIONS.items())
     evidence = {
         "source_records": bundle.sources,
@@ -79,7 +90,7 @@ Use null for non-applicable ids. Do not include any text outside the JSON object
 
 
 # --------------------------------------------------------------------------------------
-# Fixed P2 additions (byte-frozen)
+# Fixed prompt additions (byte-frozen)
 # --------------------------------------------------------------------------------------
 _GROUNDING_RULES = """\
 # Evidence-grounding rules
@@ -118,6 +129,8 @@ Do NOT cite name similarity. If you cannot cite establishing artifacts, answer U
 
 """
 
+# `render_prompt` swaps the base schema's closing line (must match `_render_base` exactly)
+# for one that adds `evidence_refs`.
 _MERGE_LINE = ('  "merge_target_id": "<the id it was wrongly merged into if status is WRONG_MERGE '
                'and that id is observable, else null>"\n}')
 _MERGE_LINE_STRUCTURED = (
@@ -128,12 +141,31 @@ _MERGE_LINE_STRUCTURED = (
 )
 
 
-def render_official_prompt(bundle: ObservableBundle, source_id: str) -> str:
-    """The single official benchmark prompt for one (record, observability level)."""
-    p = _render_base(bundle, source_id)
-    p = p.replace("# Task", _ID_CLAUSE + "# Task", 1)
-    p = p.replace("# Task", _GROUNDING_RULES + "# Task", 1)
-    p = p.replace("# Task", _CITATIONS + "# Task", 1)
+def render_unguided_prompt(bundle: ObservableBundle, source_id: str) -> str:
+    """Render the unguided control prompt: the base task plus the id clause only.
+
+    Args:
+        bundle — the observable evidence for one observability level.
+        source_id — the probe source record to investigate.
+
+    Returns:
+        The prompt text, without grounding rules or citation requirements.
+    """
+    return _render_base(bundle, source_id).replace("# Task", _ID_CLAUSE + "# Task", 1)
+
+
+def render_prompt(bundle: ObservableBundle, source_id: str) -> str:
+    """Render the official Evidence-Grounded Investigation Prompt.
+
+    Args:
+        bundle — the observable evidence for one observability level.
+        source_id — the probe source record to investigate.
+
+    Returns:
+        The prompt text, including grounding rules and the structured `evidence_refs` schema.
+    """
+    p = render_unguided_prompt(bundle, source_id)
+    p = p.replace("# Task", _GROUNDING_RULES + _CITATIONS + "# Task", 1)
     p = p.replace(_MERGE_LINE, _MERGE_LINE_STRUCTURED, 1)
-    assert "evidence_refs" in p, "structured schema patch failed"
+    assert _MERGE_LINE_STRUCTURED in p, "structured schema patch failed"
     return p

@@ -42,8 +42,9 @@ def test_redaction_never_adds_rows_or_guarantees():
 
 def test_sources_and_final_constant_across_levels():
     sim = simulate(by_id()["S01"].scenario)
-    base_s = json.dumps(build_bundle(sim, Observability.FULL).sources, sort_keys=True)
-    base_f = json.dumps(build_bundle(sim, Observability.FULL).final_dataset, sort_keys=True)
+    full = build_bundle(sim, Observability.FULL)
+    base_s = json.dumps(full.sources, sort_keys=True)
+    base_f = json.dumps(full.final_dataset, sort_keys=True)
     for lvl in LEVELS:
         b = build_bundle(sim, lvl)
         assert json.dumps(b.sources, sort_keys=True) == base_s

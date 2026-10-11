@@ -1,26 +1,27 @@
-"""Command-line interface: `python -m poc benchmark <command>`.
-
-Commands
---------
-benchmark build    Offline: validation gates + task matrix + cost estimate (ZERO API calls).
-benchmark run      Live: execute the benchmark (opt-in; requires ANTHROPIC_API_KEY).
-benchmark replay   Offline: re-score preserved responses (ZERO API calls).
-"""
+"""Command-line interface: ``python -m poc benchmark <build|run|replay>``."""
 from __future__ import annotations
 
 import argparse
 
-from .benchmark import cmd_build, cmd_run, cmd_replay
+from .benchmark import cmd_build, cmd_replay, cmd_run
 from .config import BenchmarkConfig
 
 DEFAULT_CONFIG = "configs/benchmark.yaml"
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse the command line and run the selected benchmark command.
+
+    Args:
+        argv — Arguments without the program name; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        The command's exit code.
+    """
     parser = argparse.ArgumentParser(prog="poc", description="Where Did My Data Go? — benchmark")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_bench = sub.add_parser("benchmark", help="official P2 benchmark")
+    p_bench = sub.add_parser("benchmark", help="official Evidence-Grounded Investigation benchmark")
     bsub = p_bench.add_subparsers(dest="subcommand", required=True)
     for name, help_ in (("build", "offline validation + matrix + cost (zero API)"),
                         ("run", "live run (opt-in; needs ANTHROPIC_API_KEY)"),

@@ -70,10 +70,39 @@ class StrongId(BaseModel):
     value: str
 
     def key(self) -> str:
+        """Return the ``namespace/value`` string form, e.g. ``registry:US-DE/4830012``."""
         return f"{self.namespace}/{self.value}"
 
-    def __hash__(self) -> int:  # allow use in sets
-        return hash(self.key())
+
+def source_strong_ids(src: dict) -> list[StrongId]:
+    """Return the strong ids carried by a serialized source record.
+
+    Args:
+        src — A source record as it appears in an observable bundle.
+
+    Returns:
+        The registry number for registry sources, the DUNS for directory sources that have one,
+        and nothing for news sources.
+    """
+    if src.get("source_type") == "registry":
+        return [StrongId(namespace=f"registry:{src['jurisdiction']}", value=src["registration_number"])]
+    if src.get("source_type") == "directory" and src.get("duns"):
+        return [StrongId(namespace="duns", value=src["duns"])]
+    return []
+
+
+def final_strong_keys(row: dict | None) -> set[str]:
+    """Return the strong-id keys of a serialized final-dataset row.
+
+    Args:
+        row — A ``final_dataset`` row, or None.
+
+    Returns:
+        The row's ``namespace/value`` keys; empty for None.
+    """
+    if not row:
+        return set()
+    return {f"{s['namespace']}/{s['value']}" for s in row.get("strong_ids", [])}
 
 
 # --------------------------------------------------------------------------------------
@@ -126,21 +155,13 @@ class NewsSource(BaseModel):
     published: str
 
     def strong_ids(self) -> list[StrongId]:
-        return []  # news never carries a strong id
+        return []
 
     def display_name(self) -> str:
         return self.org_mention
 
 
 SourceRecord = RegistrySource | DirectorySource | NewsSource
-
-
-def source_strong_ids(src: SourceRecord) -> list[StrongId]:
-    return src.strong_ids()
-
-
-def source_display_name(src: SourceRecord) -> str:
-    return src.display_name()
 
 
 # --------------------------------------------------------------------------------------
@@ -163,7 +184,7 @@ class GroundTruthRecord(BaseModel):
     final_id: str | None = None  # ENT-... if present in final dataset
 
     actual_outcome: Label
-    disappearance_reason: str | None = None  # human-readable, for the debug report only
+    disappearance_reason: str | None = None  # human-readable explanation of the outcome
 
 
 # --------------------------------------------------------------------------------------
@@ -184,6 +205,14 @@ class Artifact(BaseModel):
     rows: list[dict] = Field(default_factory=list)
 
     def is_complete_for(self, scope: str) -> bool:
+        """Return whether absence of a row in this artifact is evidence for ``scope``.
+
+        Args:
+            scope — Completeness scope, e.g. a batch id or ``"extraction"``.
+
+        Returns:
+            True if the artifact is ``COMPLETE`` and guaranteed complete for ``scope``.
+        """
         return self.state is ArtifactState.COMPLETE and scope in self.complete_scopes
 
 
@@ -197,11 +226,25 @@ class ObservableBundle(BaseModel):
     artifacts: dict[str, Artifact]  # keyed by artifact name
 
     def artifact(self, name: str) -> Artifact:
-        return self.artifacts.get(
-            name, Artifact(name=name, state=ArtifactState.MISSING)
-        )
+        """Look up an artifact by name.
+
+        Args:
+            name — Artifact name, e.g. ``"resolution_map"``.
+
+        Returns:
+            The artifact, or a ``MISSING`` placeholder if the bundle does not contain it.
+        """
+        return self.artifacts.get(name, Artifact(name=name, state=ArtifactState.MISSING))
 
     def source(self, source_id: str) -> dict | None:
+        """Look up a source payload by id.
+
+        Args:
+            source_id — Id of the source record.
+
+        Returns:
+            The source payload, or None if no source has that id.
+        """
         for s in self.sources:
             if s.get("source_id") == source_id:
                 return s

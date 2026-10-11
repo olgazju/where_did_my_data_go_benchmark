@@ -17,8 +17,7 @@ def test_matrix_is_single_prompt_33_cells_107_calls():
     assert sum(c["k"] for c in matrix) == 107
     # single official prompt: every fingerprint pins one model + a prompt hash, no condition field
     assert all("condition" not in c for c in matrix)
-    assert {b.spec.scenario_id for b in benchmark.official_scenarios()} and \
-        len({b.spec.scenario_id for b in benchmark.official_scenarios()}) == 15
+    assert len({b.spec.scenario_id for b in benchmark.official_scenarios()}) == 15
 
 
 def test_build_writes_matrix_and_cost_zero_api(tmp_path):

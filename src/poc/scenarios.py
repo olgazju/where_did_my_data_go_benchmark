@@ -1,31 +1,23 @@
-"""Benchmark v0.2 — 15 independent, hand-authored investigation scenarios.
+"""The 15 official benchmark scenarios (plus analysis-only twin S11B) and their expected references.
 
-Each scenario is a SELF-CONTAINED mini-pipeline (its own source records, final dataset,
-and artifacts) authored to isolate ONE phenomenon around ONE probe record. They reuse the
-POC data model (`poc.models`) and are executed through the unchanged
-`poc.simulator.simulate(scenario)` / `poc.observability.build_bundle` / `poc.solver.solve`.
-
-None of the POC eval records (SRC-1xx / ENT-5xx / T0x) are reused. Fresh ids throughout.
-
-This module declares only inputs + hidden decisions and the AUTHORED expected reference
-answer per level. The reference-generation gate (offline) asserts the deterministic solver
-reproduces those expectations; any mismatch is an authoring bug to fix here, never in the
-solver.
+Each scenario is a self-contained mini-pipeline (its own source records, final dataset and
+artifacts) isolating one phenomenon around one probe record. The offline validation gate
+asserts the deterministic solver reproduces every expected reference; a mismatch is an
+authoring bug to fix here, never in the solver.
 """
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from .models import Observability
+from .models import DirectorySource, NewsSource, Observability, RegistrySource, SourceRecord, StrongId
 from .scenario import Fate, FinalEntity, Scenario, ScenarioRecord
-from .models import StrongId, RegistrySource, DirectorySource, NewsSource
 
 FULL, PARTIAL, MINIMAL = Observability.FULL, Observability.PARTIAL, Observability.MINIMAL
 ALL = [FULL, PARTIAL, MINIMAL]
 
 
 # --------------------------------------------------------------------------------------
-# Small source-record constructors (fresh ids per scenario)
+# Terse constructors for authoring scenario data
 # --------------------------------------------------------------------------------------
 def reg(sid: str, batch: str, name: str, number: str, juris: str) -> RegistrySource:
     return RegistrySource(source_id=sid, batch=batch, legal_name=name,
@@ -47,23 +39,23 @@ def SID(ns: str, val: str) -> StrongId:
     return StrongId(namespace=ns, value=val)
 
 
-def present(source, tid: str, canon: str) -> ScenarioRecord:
+def present(source: SourceRecord, tid: str, canon: str) -> ScenarioRecord:
     return ScenarioRecord(source=source, true_entity_id=tid, fate=Fate.RESOLVED_PRESENT, canonical_id=canon)
 
 
-def ingestion_loss(source, tid: str) -> ScenarioRecord:
+def ingestion_loss(source: SourceRecord, tid: str) -> ScenarioRecord:
     return ScenarioRecord(source=source, true_entity_id=tid, fate=Fate.INGESTION_LOSS)
 
 
-def extraction_loss(source, tid: str) -> ScenarioRecord:
+def extraction_loss(source: SourceRecord, tid: str) -> ScenarioRecord:
     return ScenarioRecord(source=source, true_entity_id=tid, fate=Fate.EXTRACTION_LOSS)
 
 
-def absorbed(source, tid: str, canon: str) -> ScenarioRecord:
+def absorbed(source: SourceRecord, tid: str, canon: str) -> ScenarioRecord:
     return ScenarioRecord(source=source, true_entity_id=tid, fate=Fate.WRONG_MERGE_ABSORBED, canonical_id=canon)
 
 
-def filtered(source, tid: str, canon: str, rule: str) -> ScenarioRecord:
+def filtered(source: SourceRecord, tid: str, canon: str, rule: str) -> ScenarioRecord:
     return ScenarioRecord(source=source, true_entity_id=tid, fate=Fate.FILTERED_OUT,
                           canonical_id=canon, filter_rule=rule)
 
@@ -77,6 +69,8 @@ def fe(final_id: str, canon: str, name: str, strong_ids: list[StrongId], members
 # Spec model
 # --------------------------------------------------------------------------------------
 class ExpectedRef(BaseModel):
+    """Authored expected reference answer for one observability level."""
+
     status: str
     final_id: str | None = None
     merge_target_id: str | None = None
@@ -84,6 +78,8 @@ class ExpectedRef(BaseModel):
 
 
 class ScenarioSpec(BaseModel):
+    """Benchmark metadata for one scenario: probe, levels, expected references and analysis flags."""
+
     scenario_id: str
     title: str
     group: str  # A positive-control / B transition / C merge-id / D calibration
@@ -95,11 +91,13 @@ class ScenarioSpec(BaseModel):
     k: int = 3
     name_trap_at_minimal: bool = False  # name_similarity baseline expected to fire a WRONG positive
     twin_id: str | None = None          # counterfactual observationally-identical twin
-    twin_of: str | None = None
+    twin_of: str | None = None          # set on the analysis-only twin; excluded from the task grid
     notes: str = ""
 
 
 class BuiltScenario(BaseModel):
+    """A scenario spec paired with the executable scenario it describes."""
+
     spec: ScenarioSpec
     scenario: Scenario
 
@@ -336,7 +334,7 @@ def _s10() -> BuiltScenario:
     probe = direc("S10-P", "B3", "Northgate Freight", None, "Freight", "Reno")  # no DUNS -> no strong id
     decoy = reg("S10-DEC", "B1", "Northgate Freight", "7710055", "US-NV")        # identical name, distinct entity
     sc = Scenario(
-        # probe truly resolves to X ('Northgate Freight Services'), NOT the identically-named decoy.
+        # probe truly resolves to ENT-10 ('Northgate Freight Services'), NOT the identically-named decoy.
         records=[present(probe, "T10", "C10"), present(decoy, "T10DEC", "C10DEC")],
         final_entities=[
             fe("ENT-10", "C10", "Northgate Freight Services", [], ["S10-P"]),
@@ -377,7 +375,7 @@ def _s12() -> BuiltScenario:
 
 
 def _s11_common_finals() -> list[FinalEntity]:
-    # IDENTICAL final_entities for both twins (only hidden truth differs between A and B).
+    """Return the final entities shared verbatim by both S11 twins (only hidden truth differs)."""
     return [
         fe("ENT-11", "C11A", "Aeris Labs Inc", [SID("registry:US-CA", "4400900")], ["S11-Q"]),
         fe("ENT-11B", "C11BG", "Cinder Bay Media", [SID("registry:US-TX", "2201999")], ["S11-BG"]),
@@ -473,13 +471,18 @@ _BUILDERS = [_s01, _s02, _s03, _s04, _s05, _s06, _s07, _s08, _s09, _s10,
 
 
 def build_all() -> list[BuiltScenario]:
+    """Build every scenario, including the analysis-only counterfactual twin.
+
+    Returns:
+        All built scenarios, in task-matrix order.
+    """
     return [b() for b in _BUILDERS]
 
 
 def by_id() -> dict[str, BuiltScenario]:
+    """Build every scenario, keyed by scenario id.
+
+    Returns:
+        A mapping from scenario id (e.g. ``"S07"``) to its built scenario.
+    """
     return {b.spec.scenario_id: b for b in build_all()}
-
-
-# Scenario ids that are primary (excludes the counterfactual twin S11B, which is not an
-# independent example — it shares S11's observable condition).
-PRIMARY_IDS = [b.spec.scenario_id for b in build_all() if b.spec.twin_of is None]

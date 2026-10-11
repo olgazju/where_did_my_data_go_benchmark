@@ -27,10 +27,12 @@ uv sync
 uv run --locked python -m poc benchmark build     # offline: validation gates + task matrix + cost. ZERO API calls.
 ANTHROPIC_API_KEY=... uv run --locked python -m poc benchmark run     # live run. Explicitly opt-in; resumable; $ guardrail.
 uv run --locked python -m poc benchmark replay    # offline: re-score preserved responses. ZERO API calls.
-uv run --locked pytest                            # 48 deterministic tests
+uv run --locked pytest                            # deterministic test suite
 ```
 
-The CLI has **no prompt-condition selection** — P2 is the single official prompt.
+The local CLI runs only the official prompt (Evidence-Grounded Investigation Prompt). The Kaggle
+layer adds a second, **unguided** track (`render_unguided_prompt`: the base render + id clause,
+no grounding rules, no citations; byte-identical to the archived "P0").
 
 ## Architecture (`src/poc/`)
 
@@ -39,20 +41,46 @@ artifacts; observability views and reference labels all derive from that one exe
 
 | Module | Role |
 |---|---|
-| `models.py` | Labels, namespaced `StrongId`, three-valued `ArtifactState`, `ObservableBundle`, `ReferenceAnswer` |
+| `models.py` | Labels, namespaced `StrongId` (+ the one shared `source_strong_ids` / `final_strong_keys` helper pair), three-valued `ArtifactState`, `ObservableBundle`, `ReferenceAnswer` |
 | `scenario.py` | `Scenario` / `ScenarioRecord` / `FinalEntity` / `Fate` schema (models only) |
 | `scenarios.py` | The **15 official scenarios** + `ScenarioSpec` (probe, levels, expected reference, partial-drop policy) |
 | `simulator.py` | `simulate(scenario)` → ground truth + master artifacts (requires a scenario arg) |
 | `observability.py` | `build_bundle(sim, level, partial_resolution_drop=None)` — Full/Partial/Minimal; only ever removes info |
 | `solver.py` | Deterministic reference solver — observable evidence only, never ground truth |
-| `evaluator.py` | Parse + validate + score a model answer (status + full-answer); tracks malformed |
-| `official_prompt.py` | The single official prompt (**P2**), self-contained and byte-frozen |
-| `validators.py` | Official evidence-chain validator: `citation_integrity`, `evidence_sufficiency`, `identifier_evidence_validity` |
+| `evaluator.py` | Parse (prediction + `evidence_refs`) + score a model answer (status + full-answer); tracks malformed |
+| `official_prompt.py` | The official prompt (**Evidence-Grounded Investigation Prompt**, `render_prompt()`) and its unguided control (`render_unguided_prompt()`), both byte-frozen |
+| `validators.py` | Official evidence-chain validator: `citation_integrity`, `evidence_sufficiency`, `identifier_evidence_validity`; `chain_validity()` runs them all (used by both `benchmark.py` and `kagglebench`) |
 | `baselines.py` | Lineage-free baselines (name-similarity, strong-id, source+final-only) |
 | `benchmark.py` | `build` / `run` / `replay` + offline `validate()` gates |
 | `config.py` | `BenchmarkConfig` (execution params only) |
 | `cli.py` | `python -m poc benchmark <build|run|replay>` |
 | `provider/` | Minimal LLM seam; only `anthropic.py` |
+
+## Kaggle Benchmarks integration (`kagglebench/`, `kaggle/`)
+
+A thin, additive layer for the official Kaggle Benchmarks platform. It reuses `poc` verbatim
+and only handles execution/packaging/aggregation — it does **not** change the benchmark.
+
+- `kagglebench/` — pure, Kaggle-free: `scoring.py` (grid, per-case scoring, metric aggregation
+  over the unchanged `poc`, with `TRACKS` = `official` / `unguided`). It reuses `poc` helpers
+  (`benchmark.scenario_bundle`, `validators.chain_validity`, `evaluator.parse_prediction`) rather
+  than copying them. No `kaggle_benchmarks`/`pandas` import, so the core tests stay
+  dependency-light. The task files bootstrap `sys.path` inline (they cannot import a helper from
+  the dataset they are locating).
+- `kaggle/task.py` — official task `where-did-my-data-go` (primary: scenario-macro
+  evidence-supported accuracy). `kaggle/task_unguided.py` — `where-did-my-data-go-unguided`
+  (primary: scenario-macro full accuracy). Identical code apart from track constants (a test
+  enforces it). Both call `llm.prompt(...)` (Kaggle Model Proxy), never Anthropic, return
+  `(score, ci95)`, and MUST end with `<task>.run(kbench.llm)` or Kaggle records nothing.
+  `@kbench.task(name=...)` must be a string literal (push validates statically).
+- `kaggle/package_source.sh` — stages `poc` + `kagglebench` as ONE `wdmdg_src.zip` (the CLI
+  skips sub-directories by default); the task bootstrap imports from the zip or its extraction.
+- `kaggle/summarize_results.py` — offline tables (with-rules vs on-instinct, per-track
+  leaderboards, per-scenario matrix, traps) from `kaggle b t download` output.
+- `kaggle/{README.md,requirements-kaggle.txt}` — workflow, deps.
+- **Do not** add `kaggle-benchmarks` to `pyproject.toml`/`uv.lock`: it drags in
+  playwright/jupyter/docker and forces `pydantic>=2.11.5`. It is pre-installed on Kaggle; keep it
+  in `kaggle/requirements-kaggle.txt` only. Offline test: `tests/test_kaggle_task.py`.
 
 ## Core invariants — do not break these
 
@@ -76,13 +104,13 @@ artifacts; observability views and reference labels all derive from that one exe
 
 ## Constraints when changing the benchmark
 
-- **Do not change** scenario definitions, reference labels, or the official prompt wording without
-  intent. The prompt is regression-locked: `tests/test_official_prompt.py` compares
-  `render_official_prompt` byte-for-byte against the 33 golden prompts in
-  `tests/fixtures/official_p2/`. If you deliberately change wording, regenerate those fixtures in
-  the same change and say so.
-- **P2 is the only prompt.** P0/P1 and all condition-selection logic were removed intentionally.
-  Do not reintroduce prompt variants into the standard path.
+- **Do not change** scenario definitions, reference labels, or prompt wording without
+  intent. Both prompts are regression-locked: `tests/test_official_prompt.py` compares
+  `render_prompt` / `render_unguided_prompt` byte-for-byte against the 33 golden prompts each in
+  `tests/fixtures/official_prompt/` and `tests/fixtures/unguided_prompt/`. If you deliberately
+  change wording, regenerate those fixtures in the same change and say so.
+- **Two prompts, no more.** Official (archived "P2") and unguided (archived "P0"). The archived
+  "P1" (rules without citations) is not a benchmark track.
 - **Validator separation.** Keep citation *integrity* (are cited rows real/observable?) distinct
   from evidence *sufficiency* (do they establish the status?). Structured `evidence_refs` accept
   real field names (`registration_number`, `duns`) and list membership (`strong_ids`, `members`),
@@ -114,6 +142,7 @@ headline calibration metric); correct-abstention; correct-positive (over-abstent
 
 ## State & finding
 
-The official P2 prompt (evidence-grounding rules + canonical-vs-final id clause + structured
-`evidence_refs`) generalized across the 15 unseen scenarios: macro unsupported-positive fell to
-**0.000** with no over-abstention and 100% citation integrity. Details are in `archive/history.tgz`.
+The official Evidence-Grounded Investigation Prompt (evidence-grounding rules + canonical-vs-final
+id clause + structured `evidence_refs`) generalized across the 15 unseen scenarios: macro
+unsupported-positive fell to **0.000** with no over-abstention and 100% citation integrity. Details
+are in `archive/history.tgz`.

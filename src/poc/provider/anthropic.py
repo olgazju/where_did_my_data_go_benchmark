@@ -1,21 +1,12 @@
 """Anthropic implementation of the provider seam.
 
-Output mechanism: we request a small JSON object via the prompt and parse it in the
-(independent) evaluator. We deliberately do NOT rely on a beta structured-outputs API
-so the code stays compatible with the installed SDK; the evaluator re-validates every
-response regardless.
-
-Preflight (Ref. #7) validates, before spending any tokens:
-  * credentials are resolvable,
-  * the configured model id actually exists in the account's model list, and
-  * the `messages.create` call path exists in the installed SDK.
-
-Note on sampling: modern Claude models (Opus/Sonnet 5.x, 4.6+) reject `temperature`.
-We therefore only send `temperature` for models that accept it (e.g. Haiku), and record
-the exact kwargs that were sent for provenance.
+The answer is requested as JSON in the prompt and parsed by the independent evaluator.
+``temperature`` is sent only to models that accept it; the exact kwargs sent are recorded.
 """
 
 from __future__ import annotations
+
+import anthropic
 
 from .base import LLMRequest, RawResponse
 
@@ -25,35 +16,28 @@ _NO_SAMPLING_PREFIXES = ("claude-opus-5", "claude-opus-4-6", "claude-opus-4-7", 
 
 
 class PreflightError(RuntimeError):
-    pass
+    """The configured model cannot be used; raised before any tokens are spent."""
 
 
 class AnthropicProvider:
+    """Single-turn Messages API client for one model."""
+
     def __init__(self, model: str) -> None:
         self.model = model
-        self._client = None
-
-    def _client_or_create(self):
-        if self._client is None:
-            try:
-                import anthropic
-            except ImportError as e:  # pragma: no cover
-                raise PreflightError("the 'anthropic' package is not installed") from e
-            # The SDK resolves credentials from the environment / ant profiles itself.
-            self._client = anthropic.Anthropic()
-        return self._client
+        self._client = anthropic.Anthropic()  # resolves credentials from the environment / ant profiles
 
     def preflight(self) -> None:
-        client = self._client_or_create()
-        if not hasattr(client, "messages") or not hasattr(client.messages, "create"):
-            raise PreflightError("installed anthropic SDK has no messages.create call path")
-        # Validate the model id against the live model list — never assume it is valid.
+        """Check that the configured model id is usable with the resolved credentials.
+
+        Raises:
+            PreflightError: If the model cannot be retrieved (bad id, auth failure, ...).
+        """
         try:
-            client.models.retrieve(self.model)
+            self._client.models.retrieve(self.model)
         except Exception as e:  # noqa: BLE001 - surface any auth/404 clearly
             available = ""
             try:
-                available = ", ".join(m.id for m in client.models.list().data)
+                available = ", ".join(m.id for m in self._client.models.list().data)
             except Exception:  # noqa: BLE001
                 pass
             raise PreflightError(
@@ -61,32 +45,33 @@ class AnthropicProvider:
                 + (f" Available: {available}" if available else "")
             ) from e
 
-    def _sends_temperature(self) -> bool:
-        return not any(self.model.startswith(p) for p in _NO_SAMPLING_PREFIXES)
-
     def complete(self, req: LLMRequest) -> RawResponse:
-        client = self._client_or_create()
+        """Send one prompt and return the text answer with usage and provenance.
+
+        Args:
+            req — The request; ``temperature`` is dropped for models that reject it.
+
+        Returns:
+            The concatenated text blocks, token usage, the kwargs sent and the raw response.
+        """
         kwargs: dict = {
             "model": req.model,
             "max_tokens": req.max_tokens,
             "messages": [{"role": "user", "content": req.prompt}],
         }
-        if self._sends_temperature():
+        if not req.model.startswith(_NO_SAMPLING_PREFIXES):
             kwargs["temperature"] = req.temperature
 
-        msg = client.messages.create(**kwargs)
-        raw = msg.model_dump()
+        raw = self._client.messages.create(**kwargs).model_dump()
         text = "".join(
             block.get("text", "") for block in raw.get("content", []) if block.get("type") == "text"
         )
         usage = raw.get("usage") or {}
-        # Persist exactly what was sent (minus the full prompt, kept alongside the task).
-        params = {k: v for k, v in kwargs.items() if k != "messages"}
         return RawResponse(
             text=text,
             model=raw.get("model", req.model),
             input_tokens=usage.get("input_tokens"),
             output_tokens=usage.get("output_tokens"),
-            request_params=params,
+            request_params={k: v for k, v in kwargs.items() if k != "messages"},
             raw=raw,
         )

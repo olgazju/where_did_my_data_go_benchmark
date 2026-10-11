@@ -26,6 +26,8 @@ class Fate(str, Enum):
 
 
 class ScenarioRecord(BaseModel):
+    """A source record together with its hidden identity and fate."""
+
     source: SourceRecord
     true_entity_id: str
     fate: Fate
@@ -44,8 +46,9 @@ class FinalEntity(BaseModel):
 
 
 class Scenario(BaseModel):
+    """One self-contained mini-pipeline: its source records and final entities."""
+
     records: list[ScenarioRecord]
     final_entities: list[FinalEntity]
-    # Ingestion is organised into batches by source type; the ingestion manifest is
-    # guaranteed complete for these batches at full/partial observability.
+    # Batches for which the ingestion manifest is guaranteed complete.
     ingestion_batches: list[str] = ["B1", "B2", "B3"]

@@ -1,32 +1,25 @@
-"""Minimal provider interface (Ref. #8)."""
+"""Provider-neutral request and response models."""
 
 from __future__ import annotations
-
-from typing import Protocol
 
 from pydantic import BaseModel
 
 
 class LLMRequest(BaseModel):
+    """One single-turn completion request."""
+
     model: str
     max_tokens: int
-    temperature: float
+    temperature: float  # sent only to models that accept it
     prompt: str
 
 
 class RawResponse(BaseModel):
+    """A completion plus the provenance needed to audit it."""
+
     text: str
     model: str
     input_tokens: int | None = None
     output_tokens: int | None = None
-    request_params: dict = {}  # the EXACT kwargs sent to the provider (for provenance)
+    request_params: dict = {}  # kwargs actually sent, excluding the prompt
     raw: dict = {}  # verbatim provider response
-
-
-class LLMProvider(Protocol):
-    def preflight(self) -> None:
-        """Validate credentials, model id, and the output mechanism BEFORE spending tokens."""
-        ...
-
-    def complete(self, req: LLMRequest) -> RawResponse:
-        ...

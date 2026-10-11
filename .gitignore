@@ -9,7 +9,24 @@ __pycache__/
 # Generated benchmark output (task matrix, cost estimate, live-run samples, replay summary).
 benchmark_output/
 
+# Staged Kaggle dataset (produced by kaggle/package_source.sh) and downloaded results.
+build/
+results/
+
 # OS / editor
 .DS_Store
 .idea/
 .vscode/
+
+# Personal review checklist (not part of the benchmark).
+review.txt
+
+# Kaggle Model Proxy credentials (written by `kaggle b init`) and its scaffolding.
+.env
+example_task.py
+kaggle_benchmarks_reference.md
+*.run.json
+*.task.json
+
+# Personal submission notes and post draft.
+submission/

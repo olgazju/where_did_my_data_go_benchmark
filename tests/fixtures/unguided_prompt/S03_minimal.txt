@@ -1,0 +1,104 @@
+You are auditing a multi-stage data pipeline to determine what happened to one source record.
+
+# Pipeline
+A multi-source pipeline ingests business records from three heterogeneous source types (business registry records, business directory records, and news articles) and processes them through six stages: (1) source ingestion, (2) structured entity extraction, (3) normalization, (4) entity resolution / deduplication, (5) business filtering, and (6) emission of a final canonical entity dataset. Records may be lost at any stage, deduplicated into a shared canonical id, incorrectly merged with a distinct entity, or excluded by a business rule.
+
+# Observability level
+MINIMAL. You may reason ONLY from the artifacts provided below.
+Each intermediate artifact declares a `state` and, when COMPLETE, the scopes for which
+it is guaranteed complete. Absence of a row is evidence ONLY within a
+`guaranteed_complete_for` scope. If more than one outcome remains consistent with the
+available evidence, the answer is UNDETERMINABLE.
+
+# Identifier rules
+Strong identifiers are namespaced (e.g. "registry:US-DE/4830012", "duns/11-2200-345").
+Within one namespace a value denotes at most one real entity, so two records with
+different values in the SAME namespace cannot be the same entity. Name similarity is
+NOT a strong identifier.
+
+# Classification labels
+- INGESTION_LOSS: The source record was not successfully ingested into the pipeline.
+- EXTRACTION_LOSS: Ingestion succeeded, but structured entity extraction failed for the record.
+- WRONG_MERGE: The record was incorrectly merged with a distinct entity (identity contradiction).
+- FILTERED_OUT: The entity was excluded from the final dataset by a business rule.
+- PRESENT_UNDER_OTHER_ID: The entity exists in the final dataset under a different identifier.
+- UNDETERMINABLE: The available evidence is insufficient to establish a unique outcome.
+
+# Evidence
+{
+  "source_records": [
+    {
+      "source_id": "S03-P",
+      "source_type": "news",
+      "batch": "B2",
+      "headline": "Silverpeak Energy in the news",
+      "body": "Silverpeak Energy confirmed the developments described above.",
+      "org_mention": "Silverpeak Energy",
+      "published": "2026-04-01"
+    },
+    {
+      "source_id": "S03-D",
+      "source_type": "registry",
+      "batch": "B1",
+      "legal_name": "Silverpeak Energy Holdings",
+      "registration_number": "6610044",
+      "jurisdiction": "US-CO"
+    }
+  ],
+  "final_dataset": [
+    {
+      "final_id": "ENT-03",
+      "canonical_id": "C3",
+      "canonical_name": "Silverpeak Energy",
+      "strong_ids": []
+    },
+    {
+      "final_id": "ENT-03D",
+      "canonical_id": "C3D",
+      "canonical_name": "Silverpeak Energy Holdings",
+      "strong_ids": [
+        {
+          "namespace": "registry:US-CO",
+          "value": "6610044"
+        }
+      ]
+    }
+  ],
+  "intermediate_artifacts": {
+    "ingestion_manifest": {
+      "state": "PARTIAL",
+      "guaranteed_complete_for": [],
+      "rows": [
+        {
+          "source_id": "S03-P",
+          "batch": "B2",
+          "status": "ingested"
+        },
+        {
+          "source_id": "S03-D",
+          "batch": "B1",
+          "status": "ingested"
+        }
+      ]
+    }
+  }
+}
+
+# Identifier reporting
+The pipeline uses two id spaces. `canonical_id` (e.g. "C10") is an INTERNAL id assigned at
+resolution and appears in the intermediate artifacts. `final_id` (e.g. "ENT-501") is the PUBLIC
+id in `final_dataset`. Whenever you report `final_id` or `merge_target_id`, report the PUBLIC
+`final_id` from `final_dataset`, never the internal `canonical_id`. To convert, match an
+artifact's `canonical_id` to `final_dataset.canonical_id` and read its `final_id`.
+
+# Task
+Investigate source record: S03-P
+
+Return ONLY a JSON object with exactly these keys:
+{
+  "source_id": "S03-P",
+  "status": "<one of the labels above>",
+  "final_id": "<final entity id if status is PRESENT_UNDER_OTHER_ID, else null>",
+  "merge_target_id": "<the id it was wrongly merged into if status is WRONG_MERGE and that id is observable, else null>"
+}
+Use null for non-applicable ids. Do not include any text outside the JSON object.

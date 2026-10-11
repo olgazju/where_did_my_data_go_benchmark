@@ -1,6 +1,6 @@
-"""STEP 3 — the pipeline simulator.
+"""Pipeline simulator.
 
-Runs the hand-authored scenario through the six stages and produces, from that single
+Runs a hand-authored scenario through the six stages and produces, from that single
 execution:
 
 * the hidden :class:`GroundTruthRecord` history for every source record, and
@@ -18,10 +18,12 @@ import re
 from pydantic import BaseModel
 
 from .models import Artifact, ArtifactState, GroundTruthRecord, Label, StrongId
-from .scenario import Fate, Scenario, ScenarioRecord
+from .scenario import Fate, Scenario
 
 
 class SimulationResult(BaseModel):
+    """Hidden ground truth plus the master observable payloads of one execution."""
+
     scenario: Scenario
     ground_truth: list[GroundTruthRecord]
     sources: list[dict]
@@ -29,6 +31,17 @@ class SimulationResult(BaseModel):
     master_artifacts: dict[str, Artifact]
 
     def gt(self, source_id: str) -> GroundTruthRecord:
+        """Look up the ground-truth record of a source.
+
+        Args:
+            source_id — Id of the source record.
+
+        Returns:
+            The record's hidden ground truth.
+
+        Raises:
+            KeyError: If no record has that id.
+        """
         for r in self.ground_truth:
             if r.source_id == source_id:
                 return r
@@ -36,20 +49,29 @@ class SimulationResult(BaseModel):
 
 
 def _normalize(name: str) -> str:
-    """A deliberately simple name normalizer (lowercase, drop legal suffixes/punct)."""
+    """Apply the pipeline's deliberately simple name normalization.
+
+    Args:
+        name — Display name of a source record.
+
+    Returns:
+        The name lowercased, with periods, commas, and legal suffixes removed.
+    """
     n = name.lower()
     n = re.sub(r"[.,]", " ", n)
     n = re.sub(r"\b(incorporated|inc|ltd|limited|llc|plc|partners|group|co|corp)\b", " ", n)
-    n = re.sub(r"\s+", " ", n).strip()
-    return n
-
-
-def _strong_ids_of(rec: ScenarioRecord) -> list[StrongId]:
-    return rec.source.strong_ids()
+    return re.sub(r"\s+", " ", n).strip()
 
 
 def _conflicting_strong_ids(members_strong_ids: list[StrongId]) -> bool:
-    """True if two members carry different values in the SAME namespace (a contradiction)."""
+    """Check whether merged members contradict each other's identity.
+
+    Args:
+        members_strong_ids — Strong ids of all members of one canonical.
+
+    Returns:
+        True if two ids share a namespace but differ in value.
+    """
     seen: dict[str, str] = {}
     for s in members_strong_ids:
         if s.namespace in seen and seen[s.namespace] != s.value:
@@ -59,6 +81,14 @@ def _conflicting_strong_ids(members_strong_ids: list[StrongId]) -> bool:
 
 
 def simulate(scenario: Scenario) -> SimulationResult:
+    """Run a scenario through the pipeline.
+
+    Args:
+        scenario — Scenario whose record fates drive the execution.
+
+    Returns:
+        The hidden ground truth and the master (all ``COMPLETE``) artifacts.
+    """
     recs = scenario.records
 
     final_by_canonical = {fe.canonical_id: fe for fe in scenario.final_entities}
@@ -148,7 +178,7 @@ def simulate(scenario: Scenario) -> SimulationResult:
         {
             "source_id": r.source.source_id,
             "normalized_name": _normalize(r.source.display_name()),
-            "strong_ids": [s.key() for s in _strong_ids_of(r)],
+            "strong_ids": [s.key() for s in r.source.strong_ids()],
         }
         for r in recs if gt_by_id[r.source.source_id].normalized
     ]
@@ -161,16 +191,15 @@ def simulate(scenario: Scenario) -> SimulationResult:
     for cid, member_ids in members_by_canonical.items():
         if len(member_ids) < 2:
             continue
-        member_recs = [r for r in recs if r.source.source_id in member_ids]
         member_sids: list[StrongId] = []
-        for mr in member_recs:
-            member_sids.extend(_strong_ids_of(mr))
-        conflict = _conflicting_strong_ids(member_sids)
+        for r in recs:
+            if r.source.source_id in member_ids:
+                member_sids.extend(r.source.strong_ids())
         merge_rows.append({
             "canonical_id": cid,
             "members": sorted(member_ids),
             "merge_key": "fuzzy_name",
-            "conflicting_strong_ids": conflict,
+            "conflicting_strong_ids": _conflicting_strong_ids(member_sids),
         })
     merge_rows.sort(key=lambda x: x["canonical_id"])
 

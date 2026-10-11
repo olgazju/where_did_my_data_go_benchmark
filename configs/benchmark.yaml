@@ -1,16 +1,6 @@
-# Official "Where Did My Data Go?" v0.2 benchmark configuration.
-#
-# The benchmark uses a SINGLE official prompt and evidence validator; there is no
-# prompt-condition selection.
-#   * Official prompt: P2 = evidence-grounding rules + canonical-vs-final id clarification
-#     + structured evidence_refs. Wording is fixed (see experiments/.../prompts_v2.py and
-#     prompts/frozen_v1/). P0 / P1 are retained only for historical reproducibility.
-#   * Official evidence validator: validators_v2.
-# These two choices are fixed in code and intentionally NOT configurable here.
-#
-# Only execution parameters are configurable:
+# Execution parameters for the local `python -m poc benchmark` CLI, which runs the official
+# Evidence-Grounded Investigation Prompt. Prompts and the evidence validator are fixed in code
+# (src/poc/official_prompt.py, src/poc/validators.py) and are not configurable.
 model: claude-sonnet-5
 max_tokens: 8192
 # temperature is intentionally omitted (the model rejects it).
-k_general: 3        # samples per determinable / transition task
-k_calibration: 5    # samples per calibration probe (S09–S12)

@@ -1,0 +1,8 @@
+# Runtime dependencies for the Kaggle Benchmarks path.
+#
+# On Kaggle these are PRE-INSTALLED in the benchmarks notebook, so this file is only
+# needed for a local dry-run against the Model Proxy (internal/early-access). It is
+# intentionally NOT added to the project's pyproject.toml / uv.lock: kaggle-benchmarks
+# pulls a heavy footprint (playwright, jupyter, docker, panel, ...) and requires
+# pydantic>=2.11.5, and the core benchmark + its 48 offline tests must stay unperturbed.
+kaggle-benchmarks>=0.6.1

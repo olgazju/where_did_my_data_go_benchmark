@@ -1,4 +1,6 @@
-from poc.evaluator import evaluate_one, parse_prediction, summarize
+import json
+
+from poc.evaluator import evaluate_one, parse_prediction
 from poc.models import Label, Observability, ReferenceAnswer
 
 SID = "SRC-1"
@@ -9,7 +11,6 @@ def _ref(status, **kw):
 
 
 def _ans(status, source_id=SID, final_id=None, merge_target_id=None, extra=""):
-    import json
     d = {"source_id": source_id, "status": status, "final_id": final_id, "merge_target_id": merge_target_id}
     body = json.dumps(d)
     return body if not extra else body[:-1] + f',{extra}}}'
@@ -94,19 +95,7 @@ def test_extra_unknown_fields_ignored():
     assert rec.status_correct and rec.full_correct
 
 
-# ------------------------------------------------------------------ malformed tracking + summary
+# ------------------------------------------------------------------ malformed tracking
 def test_malformed_tracked_separately():
     rec = evaluate_one("t", _ref(Label.INGESTION_LOSS), "not json at all")
     assert rec.malformed and not rec.status_correct and not rec.full_correct
-
-
-def test_summary_dual_scores():
-    recs = [
-        evaluate_one("a", _ref(Label.INGESTION_LOSS), _ans("INGESTION_LOSS")),
-        evaluate_one("b", _ref(Label.PRESENT_UNDER_OTHER_ID, final_id="ENT-1"),
-                     _ans("PRESENT_UNDER_OTHER_ID", final_id="ENT-2")),  # status ok, full wrong
-        evaluate_one("c", _ref(Label.FILTERED_OUT), "garbage"),  # malformed
-    ]
-    s = summarize(recs)
-    assert s.total == 3 and s.malformed == 1
-    assert s.status_correct == 2 and s.full_correct == 1

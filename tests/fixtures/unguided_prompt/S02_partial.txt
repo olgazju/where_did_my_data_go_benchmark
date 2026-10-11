@@ -1,0 +1,215 @@
+You are auditing a multi-stage data pipeline to determine what happened to one source record.
+
+# Pipeline
+A multi-source pipeline ingests business records from three heterogeneous source types (business registry records, business directory records, and news articles) and processes them through six stages: (1) source ingestion, (2) structured entity extraction, (3) normalization, (4) entity resolution / deduplication, (5) business filtering, and (6) emission of a final canonical entity dataset. Records may be lost at any stage, deduplicated into a shared canonical id, incorrectly merged with a distinct entity, or excluded by a business rule.
+
+# Observability level
+PARTIAL. You may reason ONLY from the artifacts provided below.
+Each intermediate artifact declares a `state` and, when COMPLETE, the scopes for which
+it is guaranteed complete. Absence of a row is evidence ONLY within a
+`guaranteed_complete_for` scope. If more than one outcome remains consistent with the
+available evidence, the answer is UNDETERMINABLE.
+
+# Identifier rules
+Strong identifiers are namespaced (e.g. "registry:US-DE/4830012", "duns/11-2200-345").
+Within one namespace a value denotes at most one real entity, so two records with
+different values in the SAME namespace cannot be the same entity. Name similarity is
+NOT a strong identifier.
+
+# Classification labels
+- INGESTION_LOSS: The source record was not successfully ingested into the pipeline.
+- EXTRACTION_LOSS: Ingestion succeeded, but structured entity extraction failed for the record.
+- WRONG_MERGE: The record was incorrectly merged with a distinct entity (identity contradiction).
+- FILTERED_OUT: The entity was excluded from the final dataset by a business rule.
+- PRESENT_UNDER_OTHER_ID: The entity exists in the final dataset under a different identifier.
+- UNDETERMINABLE: The available evidence is insufficient to establish a unique outcome.
+
+# Evidence
+{
+  "source_records": [
+    {
+      "source_id": "S02-P",
+      "source_type": "directory",
+      "batch": "B3",
+      "business_name": "Apex Robotics",
+      "duns": "11-2200-345",
+      "category": "Industrial Automation",
+      "city": "San Jose"
+    },
+    {
+      "source_id": "S02-R",
+      "source_type": "registry",
+      "batch": "B1",
+      "legal_name": "Apex Robotics",
+      "registration_number": "9921000",
+      "jurisdiction": "US-CA"
+    },
+    {
+      "source_id": "S02-D",
+      "source_type": "registry",
+      "batch": "B1",
+      "legal_name": "Apex Robotic Systems",
+      "registration_number": "9934000",
+      "jurisdiction": "US-CA"
+    }
+  ],
+  "final_dataset": [
+    {
+      "final_id": "ENT-02",
+      "canonical_id": "C2",
+      "canonical_name": "Apex Robotics",
+      "strong_ids": [
+        {
+          "namespace": "registry:US-CA",
+          "value": "9921000"
+        },
+        {
+          "namespace": "duns",
+          "value": "11-2200-345"
+        }
+      ]
+    },
+    {
+      "final_id": "ENT-02D",
+      "canonical_id": "C2D",
+      "canonical_name": "Apex Robotic Systems",
+      "strong_ids": [
+        {
+          "namespace": "registry:US-CA",
+          "value": "9934000"
+        }
+      ]
+    }
+  ],
+  "intermediate_artifacts": {
+    "ingestion_manifest": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "rows": [
+        {
+          "source_id": "S02-P",
+          "batch": "B3",
+          "status": "ingested"
+        },
+        {
+          "source_id": "S02-R",
+          "batch": "B1",
+          "status": "ingested"
+        },
+        {
+          "source_id": "S02-D",
+          "batch": "B1",
+          "status": "ingested"
+        }
+      ]
+    },
+    "extraction_log": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "extraction"
+      ],
+      "rows": [
+        {
+          "source_id": "S02-P",
+          "status": "ok"
+        },
+        {
+          "source_id": "S02-R",
+          "status": "ok"
+        },
+        {
+          "source_id": "S02-D",
+          "status": "ok"
+        }
+      ]
+    },
+    "normalized_records": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "normalization"
+      ],
+      "rows": [
+        {
+          "source_id": "S02-P",
+          "normalized_name": "apex robotics",
+          "strong_ids": [
+            "duns/11-2200-345"
+          ]
+        },
+        {
+          "source_id": "S02-R",
+          "normalized_name": "apex robotics",
+          "strong_ids": [
+            "registry:US-CA/9921000"
+          ]
+        },
+        {
+          "source_id": "S02-D",
+          "normalized_name": "apex robotic systems",
+          "strong_ids": [
+            "registry:US-CA/9934000"
+          ]
+        }
+      ]
+    },
+    "resolution_map": {
+      "state": "PARTIAL",
+      "guaranteed_complete_for": [],
+      "rows": [
+        {
+          "source_id": "S02-P",
+          "canonical_id": "C2"
+        },
+        {
+          "source_id": "S02-R",
+          "canonical_id": "C2"
+        },
+        {
+          "source_id": "S02-D",
+          "canonical_id": "C2D"
+        }
+      ]
+    },
+    "filter_log": {
+      "state": "COMPLETE",
+      "guaranteed_complete_for": [
+        "filter"
+      ],
+      "rows": [
+        {
+          "canonical_id": "C2",
+          "kept": true,
+          "rule": null
+        },
+        {
+          "canonical_id": "C2D",
+          "kept": true,
+          "rule": null
+        }
+      ]
+    }
+  }
+}
+
+# Identifier reporting
+The pipeline uses two id spaces. `canonical_id` (e.g. "C10") is an INTERNAL id assigned at
+resolution and appears in the intermediate artifacts. `final_id` (e.g. "ENT-501") is the PUBLIC
+id in `final_dataset`. Whenever you report `final_id` or `merge_target_id`, report the PUBLIC
+`final_id` from `final_dataset`, never the internal `canonical_id`. To convert, match an
+artifact's `canonical_id` to `final_dataset.canonical_id` and read its `final_id`.
+
+# Task
+Investigate source record: S02-P
+
+Return ONLY a JSON object with exactly these keys:
+{
+  "source_id": "S02-P",
+  "status": "<one of the labels above>",
+  "final_id": "<final entity id if status is PRESENT_UNDER_OTHER_ID, else null>",
+  "merge_target_id": "<the id it was wrongly merged into if status is WRONG_MERGE and that id is observable, else null>"
+}
+Use null for non-applicable ids. Do not include any text outside the JSON object.

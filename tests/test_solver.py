@@ -64,7 +64,7 @@ def test_property_redaction_never_invents_contradictory_positive():
         base = solve(full, b.spec.probe_source_id)
         for _ in range(60):
             red = copy.deepcopy(full)
-            for name, art in red.artifacts.items():
+            for art in red.artifacts.values():
                 if rng.random() < 0.5:
                     art.state, art.complete_scopes, art.rows = ArtifactState.MISSING, [], []
                 elif art.rows and rng.random() < 0.5:
